@@ -1,8 +1,10 @@
 streamlit
 langchain>=0.3.0
-langchain-classic
 langchain-community
 langchain-groq
-tavily-python
 python-dotenv
+geopy
+timezonefinder
 pytz
+requests
+tavily-python
