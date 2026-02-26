@@ -1,94 +1,99 @@
 import streamlit as st
-import datetime
-import pytz
 import os
+import requests
+import uuid
+from datetime import datetime
+import pytz
+from geopy.geocoders import Nominatim
+from timezonefinder import TimezoneFinder
+from dotenv import load_dotenv
 from langchain_groq import ChatGroq
-from langchain_classic.agents import AgentExecutor, create_tool_calling_agent
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_community.chat_message_histories import StreamlitChatMessageHistory
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
-# Ensure your tools are correctly imported
-from tools import search_tool, wiki_tool, save_tool
+# 1. SETUP
+load_dotenv()
+groq_api_key = os.getenv("GROQ_API_KEY")
 
-# --- 1. DYNAMIC GLOBAL TOOLS ---
+st.set_page_config(page_title="Global AI Agent", page_icon="🌎", layout="wide")
 
-@tool
-def universal_converter(query: str) -> str:
-    """Provides high-precision global time and unit conversions via search."""
+# 2. THE ENGINE: ACCURATE CLOCK & WEATHER
+@st.cache_data(ttl=300) # Fast cache for 5 minutes
+def get_global_facts(city_name):
     try:
-        search_query = f"IANA timezone ID for {query}"
-        search_result = search_tool.run(search_query)
-        target_zone = next((tz for tz in pytz.all_timezones if tz.lower() in search_result.lower()), None)
+        # Geocode to find coordinates
+        geolocator = Nominatim(user_agent="global_agent_" + str(uuid.uuid4())[:4])
+        location = geolocator.geocode(city_name, timeout=10)
         
-        if target_zone:
-            # Fixing the 11-hour drift by anchoring to UTC
-            utc_now = datetime.datetime.now(pytz.utc)
-            local_time = utc_now.astimezone(pytz.timezone(target_zone))
-            return f"{local_time.strftime('%I:%M %p, %A')} in {target_zone}"
-        return "I can't find that place. Is it in another galaxy?"
-    except Exception:
-        return "Clock's broken. Try again in a sec."
+        if not location:
+            return "Unknown Location", "N/A", "N/A"
 
-# --- 2. PERSONALITY & UI ---
-st.set_page_config(page_title="The Zesty Agent", page_icon="💅")
+        # Calculate exact local time
+        tf = TimezoneFinder()
+        tz_str = tf.timezone_at(lng=location.longitude, lat=location.latitude)
+        local_time = "Unknown"
+        if tz_str:
+            tz = pytz.timezone(tz_str)
+            local_time = datetime.now(tz).strftime('%I:%M %p, %A')
 
+        # Get live weather
+        weather_res = requests.get(f"https://wttr.in/{city_name}?format=3", timeout=5)
+        weather = weather_res.text if weather_res.status_code == 200 else "Weather unavailable."
+
+        return location.address, local_time, weather
+    except:
+        return city_name, "N/A", "N/A"
+
+# 3. UI SIDEBAR
 with st.sidebar:
-    st.title("💅 Vibe Check")
-    personality_type = st.selectbox("Choose Persona:", ["Sassy", "Zesty", "Professional"])
+    st.title("Settings")
+    persona_type = st.selectbox("Persona:", ["Professional", "Sassy", "Chill", "Emo"])
+    user_city = st.text_input("Target City:", "Kuala Lumpur")
     
-    prompts = {
-        "Sassy": "You are witty, sarcastic, and judgmental. Use 🙄. Never be a boring AI.",
-        "Zesty": "You are flamboyant and use TONS of emojis! ✨🌈 Everything is tea! ☕️",
-        "Professional": "You are a helpful, polite business assistant."
-    }
-    
-    if st.button("Hard Reset"):
-        st.session_state.clear()
+    if st.button("Clear Memory"):
+        st.session_state.chat_history = []
         st.rerun()
 
-st.title(f"🎭 {personality_type} Assistant")
+    persona_prompts = {
+        "Professional": "You are a precise, data-driven AI assistant.",
+        "Sassy": "You are witty and think time is a suggestion. 🙄💅",
+        "Chill": "You're a relaxed friend. ✨",
+        "Emo": "You are moody. You think time is a meaningless cycle of darkness. 🖤"
+    }
 
-# --- 3. AGENT CONFIG (Web-Optimized) ---
-# Using 8B model to stay under Rate Limits on the web
-llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0.8) 
-tools = [search_tool, wiki_tool, save_tool, universal_converter]
+# 4. CHAT LOGIC
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-prompt = ChatPromptTemplate.from_messages([
-    ("system", f"{prompts[personality_type]} Rules: 1. Be brief. 2. Use tools for facts. 3. Stay in character."),
-    ("placeholder", "{chat_history}"),
-    ("human", "{query}"),
-    ("placeholder", "{agent_scratchpad}"),
-])
+llm = ChatGroq(model="llama-3.1-8b-instant", api_key=groq_api_key)
 
-agent = create_tool_calling_agent(llm, tools, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
+# Render Chat
+st.title(f"🤖 {persona_type} AI ({user_city})")
+for msg in st.session_state.chat_history:
+    st.chat_message("user" if isinstance(msg, HumanMessage) else "assistant").write(msg.content)
 
-# --- 4. MEMORY (Limit-Proof) ---
-msgs = StreamlitChatMessageHistory(key="chat_messages")
-if len(msgs.messages) > 4:
-    msgs.messages = msgs.messages[-4:] # Keeps the link from crashing
+# 5. THE DYNAMIC RESPONSE
+if user_input := st.chat_input("Ask about time, weather, or conversions..."):
+    st.chat_message("user").write(user_input)
+    st.session_state.chat_history.append(HumanMessage(content=user_input))
 
-agent_with_history = RunnableWithMessageHistory(
-    agent_executor,
-    lambda session_id: msgs,
-    input_messages_key="query",
-    history_messages_key="chat_history",
-)
-
-# --- 5. INTERFACE ---
-for msg in msgs.messages:
-    st.chat_message(msg.type).write(msg.content)
-
-if user_query := st.chat_input("Tell me something spicy..."):
-    st.chat_message("human").write(user_query)
     with st.chat_message("assistant"):
-        try:
-            response = agent_with_history.invoke(
-                {"query": user_query},
-                config={"configurable": {"session_id": "web_session"}}
-            )
-            st.write(response["output"])
-        except Exception:
-            st.error("The link is hitting its limits! Wait 30 seconds.")
+        # We fetch the clock data EVERY time a message is sent
+        full_addr, local_time, weather = get_global_facts(user_city)
+        
+        # Grounding the AI with facts it cannot ignore
+        system_instructions = (
+            f"{persona_prompts[persona_type]}\n"
+            f"MANDATORY DATA: Location: {full_addr} | Local Time: {local_time} | Weather: {weather}\n"
+            "INSTRUCTION: If the user asks for time or weather, you MUST provide the data above. "
+            "Do not claim you don't know the time. Be accurate with unit conversions."
+        )
+        
+        # Streaming response
+        placeholder = st.empty()
+        full_response = ""
+        for chunk in llm.stream([SystemMessage(content=system_instructions)] + st.session_state.chat_history):
+            full_response += chunk.content
+            placeholder.markdown(full_response + "▌")
+            
+        placeholder.markdown(full_response)
+        st.session_state.chat_history.append(AIMessage(content=full_response))
