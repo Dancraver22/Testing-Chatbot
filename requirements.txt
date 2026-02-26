@@ -1,8 +1,8 @@
-langchain 
-wikipedia 
-langchain-community 
-langchain-openai
-langchain-anthropic
+streamlit
+langchain>=0.3.0
+langchain-classic
+langchain-community
+langchain-groq
+tavily-python
 python-dotenv
-pydantic
-duckduckgo-search
+pytz
