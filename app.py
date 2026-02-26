@@ -8,8 +8,9 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from tavily import TavilyClient
 
-# 1. SETUP & SECRETS (Safe for Cloud & Local)
 load_dotenv()
+
+# --- SECRETS ---
 try:
     groq_api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
     tavily_api_key = st.secrets.get("TAVILY_API_KEY") or os.getenv("TAVILY_API_KEY")
@@ -17,84 +18,71 @@ except:
     groq_api_key = os.getenv("GROQ_API_KEY")
     tavily_api_key = os.getenv("TAVILY_API_KEY")
 
-st.set_page_config(page_title="Global Mini-Gemini", page_icon="🌎", layout="wide")
+st.set_page_config(page_title="Refined AI", page_icon="🎯")
 
-# 2. THE FACT-CHECKER (No Hallucinations)
-def get_realtime_data(city_name):
+# --- ACCURATE DATA ENGINE ---
+def get_verified_context(city_name):
     try:
-        # Get Location
-        geolocator = Nominatim(user_agent=f"gemini_v4_{uuid.uuid4().hex[:4]}")
+        geolocator = Nominatim(user_agent=f"accuracy_check_{uuid.uuid4().hex[:4]}")
         loc = geolocator.geocode(city_name, timeout=10)
-        if not loc: return city_name, "N/A", "N/A"
         
-        # Get Exact Clock
-        tf = TimezoneFinder()
-        tz_str = tf.timezone_at(lng=loc.longitude, lat=loc.latitude)
-        l_time = datetime.now(pytz.timezone(tz_str)).strftime('%I:%M %p, %A, %b %d')
+        # Fallback to Malaysia Time if geocode fails
+        tz = pytz.timezone("Asia/Kuala_Lumpur")
+        if loc:
+            tf = TimezoneFinder()
+            tz_str = tf.timezone_at(lng=loc.longitude, lat=loc.latitude)
+            if tz_str: tz = pytz.timezone(tz_str)
         
-        # Get Weather
-        weather = requests.get(f"https://wttr.in/{city_name}?format=3", timeout=5).text
-        return loc.address, l_time, weather
+        l_time = datetime.now(tz).strftime('%I:%M %p, %A')
+        weather = requests.get(f"https://wttr.in/{city_name}?format=3").text
+        return loc.address if loc else city_name, l_time, weather
     except:
-        return city_name, datetime.now().strftime('%I:%M %p'), "Weather unavailable"
+        # Emergency fallback for KL
+        kl_time = datetime.now(pytz.timezone("Asia/Kuala_Lumpur")).strftime('%I:%M %p')
+        return city_name, kl_time, "Weather unavailable"
 
-# 3. SIDEBAR & PERSONA DEFINITIONS
-with st.sidebar:
-    st.title("🤖 Assistant Settings")
-    persona = st.selectbox("Persona Style:", ["Professional", "Sassy", "Chill", "Emo"])
-    user_city = st.text_input("Home Base (City):", "Kuala Lumpur")
-    st.markdown("---")
-    if st.button("🗑️ CLEAR CHAT"):
-        st.session_state.chat_history = []
-        st.rerun()
-
-    # The AI's "Soul"
-    persona_prompts = {
-        "Professional": "You are a precise, data-grounded AI like Gemini.",
-        "Sassy": "You are witty, sarcastic, and frankly smarter than everyone. 🙄💅",
-        "Chill": "You're a relaxed friend. Everything is easy-going. ✨",
-        "Emo": "You are moody, dark, and poetic. 🖤"
-    }
-
-# 4. CHAT HISTORY ENGINE
+# --- SIDEBAR ---
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-llm = ChatGroq(model="llama-3.1-8b-instant", api_key=groq_api_key)
+with st.sidebar:
+    st.title("Settings")
+    persona = st.selectbox("Persona:", ["Professional", "Sassy", "Emo"])
+    user_city = st.text_input("Home City:", "Kuala Lumpur")
+    if st.button("Clear Memory"):
+        st.session_state.chat_history = []
+        st.rerun()
 
-# 5. UI DISPLAY
-st.title(f"🤖 {persona} Assistant")
+# --- CHAT LOGIC ---
+llm = ChatGroq(model="llama-3.1-8b-instant", api_key=groq_api_key)
+st.title(f"🤖 {persona} AI")
 
 for msg in st.session_state.chat_history:
     st.chat_message("user" if isinstance(msg, HumanMessage) else "assistant").write(msg.content)
 
-# 6. INPUT & DYNAMIC GROUNDING
-if user_input := st.chat_input("Ask about time, weather, or news..."):
+if user_input := st.chat_input("Ask me anything..."):
     st.chat_message("user").write(user_input)
     st.session_state.chat_history.append(HumanMessage(content=user_input))
 
     with st.chat_message("assistant"):
-        # A. Always Fetch Fresh Facts
-        addr, l_time, l_weather = get_realtime_data(user_city)
+        addr, l_time, l_weather = get_verified_context(user_city)
         
-        # B. Conditional Google Search (Only for News/Facts)
-        search_info = ""
-        news_keywords = ["news", "latest", "today", "happened", "who is", "price"]
-        if any(k in user_input.lower() for k in news_keywords) and tavily_api_key:
-            with st.status("Searching the web...", expanded=False):
-                tavily = TavilyClient(api_key=tavily_api_key)
-                search_info = str(tavily.search(query=user_input, search_depth="basic"))
+        # Persona Logic
+        persona_prompts = {
+            "Professional": "You are a helpful assistant. Only provide time/weather if asked.",
+            "Sassy": "You are witty and sarcastic. Don't volunteer info unless asked. 💅",
+            "Emo": "You are moody. You think time is a meaningless cycle. 🖤"
+        }
 
-        # C. Re-Inforce the Facts (The Accuracy Fix)
+        # THE FIX: We tell the AI to be SILENT about the data unless it's relevant
         sys_msg = (
             f"{persona_prompts[persona]}\n"
-            f"MANDATORY FACTS: Location: {addr} | Exact Time: {l_time} | Weather: {l_weather}\n"
-            f"SEARCH RESULTS: {search_info}\n"
-            "INSTRUCTION: Use MANDATORY FACTS for time/location. Use SEARCH for news. "
-            "Never lie about the time. If you don't know, use your internal 2026 knowledge."
+            f"DATA BANK: Time: {l_time} | Location: {addr} | Weather: {l_weather}\n"
+            "RULE: Do NOT mention the time, location, or weather in your greeting. "
+            "ONLY use the DATA BANK if the user specifically asks for it. "
+            "If they ask 'what time is it', use the Exact Time above. Do not guess."
         )
 
-        # D. Gemini-Style Streaming
         placeholder = st.empty()
         full_response = ""
         for chunk in llm.stream([SystemMessage(content=sys_msg)] + st.session_state.chat_history):
