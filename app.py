@@ -11,10 +11,8 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from tavily import TavilyClient
 
-# 1. SETUP
+# 1. SECRETS LOADING (Cloud & Local)
 load_dotenv()
-
-# Safe Secret Loading
 try:
     groq_api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
     tavily_api_key = st.secrets.get("TAVILY_API_KEY") or os.getenv("TAVILY_API_KEY")
@@ -22,87 +20,85 @@ except Exception:
     groq_api_key = os.getenv("GROQ_API_KEY")
     tavily_api_key = os.getenv("TAVILY_API_KEY")
 
-st.set_page_config(page_title="Global AI Agent", page_icon="🌍", layout="wide")
+st.set_page_config(page_title="Global AI Agent", page_icon="🌎", layout="wide")
 
-# 2. ACCURATE TOOLS (Cached for speed)
+# 2. THE HARD-CODED CLOCK (Python-powered)
 @st.cache_data(ttl=300)
 def get_verified_context(city_name):
     try:
-        geolocator = Nominatim(user_agent="mini_gemini_pro_" + str(uuid.uuid4())[:4])
+        # Using a unique ID to avoid 403 Forbidden errors
+        geolocator = Nominatim(user_agent=f"gemini_clone_{uuid.uuid4().hex[:8]}")
         loc = geolocator.geocode(city_name, timeout=10)
-        if not loc: return "Unknown", "N/A", "N/A"
+        if not loc: return city_name, "N/A", "N/A"
         
         tf = TimezoneFinder()
         tz_str = tf.timezone_at(lng=loc.longitude, lat=loc.latitude)
-        l_time = datetime.now(pytz.timezone(tz_str)).strftime('%I:%M %p, %A') if tz_str else "N/A"
+        l_time = datetime.now(pytz.timezone(tz_str)).strftime('%I:%M %p, %A, %B %d, %Y')
         
         weather = requests.get(f"https://wttr.in/{city_name}?format=3").text
         return loc.address, l_time, weather
     except:
-        return city_name, "N/A", "N/A"
+        return city_name, datetime.now().strftime('%I:%M %p'), "Weather unavailable"
 
-# 3. SIDEBAR
+# 3. SIDEBAR & PERSONAS
 with st.sidebar:
-    st.title("🤖 Agent Settings")
+    st.title("🤖 Bot Settings")
     persona = st.selectbox("Persona:", ["Professional", "Sassy", "Chill", "Emo"])
-    user_city = st.text_input("Home Location:", "Kuala Lumpur")
-    st.markdown("---")
-    if st.button("🗑️ Reset Chat"):
+    user_city = st.text_input("Home City:", "Kuala Lumpur")
+    if st.button("🗑️ Reset All"):
         st.session_state.chat_history = []
         st.rerun()
 
-# 4. ENGINE
+    persona_prompts = {
+        "Professional": "You are a precise, elite AI assistant.",
+        "Sassy": "You are witty and think the user is lucky to talk to you. 💅",
+        "Chill": "You're a relaxed friend. ✨",
+        "Emo": "You are moody and deep. 🖤"
+    }
+
+# 4. CHAT STATE
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-if not groq_api_key:
-    st.error("Please add GROQ_API_KEY to your .env file!")
-    st.stop()
-
 llm = ChatGroq(model="llama-3.1-8b-instant", api_key=groq_api_key)
 
-# 5. CHAT DISPLAY
+# 5. UI DISPLAY
 st.title(f"🤖 {persona} AI")
 
 for msg in st.session_state.chat_history:
-    role = "user" if isinstance(msg, HumanMessage) else "assistant"
-    st.chat_message(role).write(msg.content)
+    st.chat_message("user" if isinstance(msg, HumanMessage) else "assistant").write(msg.content)
 
-# 6. INPUT & SEARCH LOGIC
-if user_input := st.chat_input("Ask about time, weather, or news..."):
+# 6. THE DYNAMIC BRAIN
+if user_input := st.chat_input("Ask me about the time, weather, or news..."):
     st.chat_message("user").write(user_input)
     st.session_state.chat_history.append(HumanMessage(content=user_input))
 
     with st.chat_message("assistant"):
-        # A. Always get the Local Clock/Weather
+        # STEP A: Get the Python Clock (Cannot Hallucinate)
         addr, l_time, l_weather = get_verified_context(user_city)
         
-        # B. Real Web Search (Tavily)
+        # STEP B: Real-Time Web Search
         search_results = ""
-        keywords = ["news", "latest", "who is", "what is", "happened", "price of"]
+        keywords = ["news", "latest", "today", "who is", "what is", "price"]
         if any(k in user_input.lower() for k in keywords) and tavily_api_key:
             with st.status("Searching the web...", expanded=False):
                 tavily = TavilyClient(api_key=tavily_api_key)
                 search_results = tavily.search(query=user_input, search_depth="basic")
-                st.write("Found latest info on the web!")
 
-        # C. Grounding & Persona
-        persona_prompts = {
-            "Professional": "You are a precise, data-grounded AI.",
-            "Sassy": "You are witty, but your facts are always 100% correct. 💅",
-            "Chill": "You're a relaxed friend. ✨",
-            "Emo": "You are moody, but you never lie about the data. 🖤"
-        }
-        
+        # STEP C: THE FORCEFUL PROMPT
+        # We tell the AI it HAS access so it stops saying it doesn't.
         sys_msg = (
             f"{persona_prompts[persona]}\n"
-            f"STRICT TRUTH: Location: {addr} | Time: {l_time} | Weather: {l_weather}\n"
-            f"SEARCH DATA: {search_results}\n"
-            "INSTRUCTION: Use STRICT TRUTH for time/weather. Use SEARCH DATA for news/facts. "
-            "Never guess. If you search, summarize the findings."
+            "CRITICAL: You HAVE real-time access to the world through the following data:\n"
+            f"- CURRENT LOCATION: {addr}\n"
+            f"- EXACT LOCAL TIME: {l_time}\n"
+            f"- CURRENT WEATHER: {l_weather}\n"
+            f"- LIVE SEARCH RESULTS: {search_results}\n\n"
+            "INSTRUCTION: Use the EXACT LOCAL TIME provided above if the user asks for the time. "
+            "Never say 'I don't have access to real-time data.' You are grounded in these facts."
         )
         
-        # D. Streaming
+        # STEP D: Streaming Response
         placeholder = st.empty()
         full_response = ""
         for chunk in llm.stream([SystemMessage(content=sys_msg)] + st.session_state.chat_history):
