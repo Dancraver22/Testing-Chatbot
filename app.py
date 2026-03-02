@@ -14,11 +14,10 @@ except:
     groq_api_key = os.getenv("GROQ_API_KEY")
     tavily_api_key = os.getenv("TAVILY_API_KEY")
 
-st.set_page_config(page_title="Fact-Checked AI", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="Hybrid AI Agent", page_icon="🧠", layout="wide")
 
-# 1. THE TRUTH TOOLS
+# 1. TIME ENGINE
 def get_verified_time():
-    # Direct calculation to stop the 05:33 AM hallucination
     myt = pytz.timezone("Asia/Kuala_Lumpur")
     return datetime.now(myt).strftime('%I:%M %p, %A, %B %d, %Y')
 
@@ -30,58 +29,59 @@ llm = ChatGroq(model="llama-3.1-8b-instant", api_key=groq_api_key, streaming=Tru
 
 # 3. SIDEBAR
 with st.sidebar:
-    st.title("⚙️ AI Controls")
+    st.title("⚙️ AI Logic")
     persona = st.selectbox("Persona:", ["Professional", "Sassy", "Emo"])
-    if st.button("🗑️ Reset Brain"):
+    if st.button("🗑️ Reset Chat"):
         st.session_state.chat_history = []
         st.rerun()
 
     persona_prompts = {
-        "Professional": "You are a factual, elite assistant. Accuracy is mandatory.",
-        "Sassy": "You are witty and sarcastic, but you NEVER lie about facts.",
-        "Emo": "You are moody, but you see the cold, hard facts of reality."
+        "Professional": "You are a factual, elite assistant. Be polite.",
+        "Sassy": "You are witty and sarcastic. Don't be a boring robot.",
+        "Emo": "You are moody and deep. Everything is gray."
     }
 
-st.title(f"🤖 {persona} (Fact-Checked)")
+st.title(f"🤖 {persona} Assistant")
 
 for msg in st.session_state.chat_history:
     st.chat_message("user" if isinstance(msg, HumanMessage) else "assistant").write(msg.content)
 
-# 4. GROUNDED LOGIC
-if user_input := st.chat_input("Ask a factual question..."):
+# 4. HYBRID LOGIC: Casual vs Fact-Check
+if user_input := st.chat_input("Ask me anything..."):
     st.session_state.chat_history.append(HumanMessage(content=user_input))
     st.chat_message("user").write(user_input)
 
     with st.chat_message("assistant"):
         curr_time = get_verified_time()
-        search_context = []
         
-        # We always check facts if the question seems specific
-        if tavily_api_key:
-            with st.status("Verifying facts and sources...", expanded=False):
+        # GATEKEEPER: Detect if search is actually needed
+        # We don't search for "how are you", "hi", "yo", etc.
+        needs_fact_check = any(k in user_input.lower() for k in [
+            "who", "what", "where", "news", "price", "brand", "restaurant", "naknak", "weather", "is it"
+        ])
+        
+        search_data = ""
+        sources_text = ""
+        
+        if needs_fact_check and tavily_api_key:
+            with st.status("🔍 Fact-checking your request...", expanded=False):
                 tavily = TavilyClient(api_key=tavily_api_key)
-                # Advanced search to distinguish Korean vs Malay food
                 response = tavily.search(query=user_input, search_depth="advanced", max_results=3)
-                search_context = response['results']
+                search_data = "\n".join([res['content'] for res in response['results']])
+                sources_text = "\n".join([f"- {res['title']}: {res['url']}" for res in response['results']])
 
-        # Formatting sources for the AI to use
-        sources_text = "\n".join([f"- {res['title']}: {res['url']}" for res in search_context])
-        content_text = "\n".join([res['content'] for res in search_context])
-
-        # THE "NO-HALLUCINATION" PROMPT
+        # THE DYNAMIC PROMPT
         sys_msg = (
             f"{persona_prompts[persona]}\n"
-            f"CURRENT_TIME: {curr_time}\n"
-            f"WEB_SEARCH_DATA: {content_text}\n"
-            f"SOURCES_TO_CITE: {sources_text}\n\n"
-            "STRICT RULES:\n"
-            "1. Use the provided WEB_SEARCH_DATA as the primary truth. If it says Naknak is Korean, you MUST say it is Korean.\n"
-            "2. Citations: You MUST list the source URLs used at the end of your response under a 'Sources:' header.\n"
-            "3. If the user asks for time, use ONLY the CURRENT_TIME provided above.\n"
-            "4. If you don't find the answer in the search data, admit you don't know instead of guessing.\n"
-            "5. Never say 'I don't have access'. You are looking at the data right now."
+            f"LOCAL_TIME: {curr_time}\n"
+            f"SEARCH_DATA: {search_data}\n"
+            f"SOURCES: {sources_text}\n\n"
+            "RULES:\n"
+            "1. If SEARCH_DATA is empty, be casual and don't cite anything.\n"
+            "2. If SEARCH_DATA has info, use it and LIST the sources at the bottom.\n"
+            "3. If the user argues about facts (like Naknak), rely ONLY on SEARCH_DATA.\n"
+            "4. For casual 'hi' or 'how are you', do NOT talk about articles or databases."
         )
 
-        # 5. STREAMING WITH SOURCES
         full_response = st.write_stream(llm.stream([SystemMessage(content=sys_msg)] + st.session_state.chat_history))
         st.session_state.chat_history.append(AIMessage(content=full_response))
