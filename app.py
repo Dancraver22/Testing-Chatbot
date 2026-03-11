@@ -14,10 +14,10 @@ load_dotenv()
 # This loads a local model to your CPU/GPU. Sunway loves this "Local AI" approach.
 @st.cache_resource
 def load_sentiment_model():
-    # This uses PyTorch under the hood to analyze text sentiment
-    return pipeline("sentiment-analysis", device=-1) # -1 is CPU, 0 is GPU
+    # 'distilbert-base-uncased-finetuned-sst-2-english' is the gold standard for light apps
+    return pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
 
-analyzer = load_sentiment_model()
+analyzer = pipeline("sentiment-analysis", model="...", device=-1) # -1 forces CPU
 
 # API Keys setup
 groq_api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
@@ -114,3 +114,4 @@ if user_input := st.chat_input("Ask me anything..."):
 
         full_response = st.write_stream(llm.stream([SystemMessage(content=sys_msg)] + st.session_state.chat_history))
         st.session_state.chat_history.append(AIMessage(content=full_response))
+
