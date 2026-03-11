@@ -1,31 +1,38 @@
 import streamlit as st
 import os, pytz
-import torch  # <--- NEW: PyTorch Integration
-from transformers import pipeline  # <--- NEW: HuggingFace (Built on PyTorch)
+import torch
+from transformers import pipeline
 from datetime import datetime
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from tavily import TavilyClient
 from dotenv import load_dotenv
 
+# Load local environment variables if they exist
 load_dotenv()
 
-# --- NEW: PYTORCH LOCAL MODEL LOADING ---
-# This loads a local model to your CPU/GPU. Sunway loves this "Local AI" approach.
-@st.cache_resource
-def load_sentiment_model():
-    # 'distilbert-base-uncased-finetuned-sst-2-english' is the gold standard for light apps
-    return pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
+# --- 1. CONFIG & API SETUP ---
+st.set_page_config(page_title="Global Hybrid AI", page_icon="🌍", layout="wide")
 
-analyzer = pipeline("sentiment-analysis", model="...", device=-1) # -1 forces CPU
-
-# API Keys setup
 groq_api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
 tavily_api_key = st.secrets.get("TAVILY_API_KEY") or os.getenv("TAVILY_API_KEY")
 
-st.set_page_config(page_title="Global Hybrid AI", page_icon="🌍", layout="wide")
+# --- 2. LOCAL PYTORCH OPTIMIZATION ---
+@st.cache_resource
+def load_sentiment_model():
+    """
+    Loads a lightweight DistilBERT model for sentiment analysis.
+    Forcing device=-1 (CPU) ensures it stays stable on Streamlit Cloud.
+    """
+    return pipeline(
+        "sentiment-analysis", 
+        model="distilbert-base-uncased-finetuned-sst-2-english",
+        device=-1
+    )
 
-# 1. TIME ENGINE
+analyzer = load_sentiment_model()
+
+# --- 3. UTILITIES: TIME & HISTORY ---
 def get_device_time():
     try:
         user_tz_name = st.context.timezone or "UTC"
@@ -40,19 +47,19 @@ def get_device_time():
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-llm = ChatGroq(model="llama-3.1-8b-instant", api_key=groq_api_key, streaming=True)
+# Initialize LLM (Temperature 0 is crucial for factual RAG)
+llm = ChatGroq(model="llama-3.1-8b-instant", api_key=groq_api_key, streaming=True, temperature=0)
 
-# 3. SIDEBAR
+# --- 4. SIDEBAR ---
 with st.sidebar:
-    st.title("⚙️ AI Logic")
+    st.title("⚙️ AI Logic Center")
     persona = st.selectbox("Persona:", ["Professional", "Sassy", "Emo"])
     
-    # --- NEW: PYTORCH VISUALIZER ---
     st.divider()
-    st.subheader("🧠 Local PyTorch Stats")
-    # This shows the recruiter you understand hardware utilization
-    device_label = "GPU (Accelerated)" if torch.cuda.is_available() else "CPU (Standard)"
-    st.info(f"Running on: **{device_label}**")
+    st.subheader("🧠 Local PyTorch Engine")
+    device_info = "GPU (Accelerated)" if torch.cuda.is_available() else "CPU (Standard)"
+    st.info(f"Inference Mode: **{device_info}**")
+    st.caption("Using DistilBERT for local intent analysis.")
 
     if st.button("🗑️ Reset Chat"):
         st.session_state.chat_history = []
@@ -64,54 +71,70 @@ with st.sidebar:
         "Emo": "You are moody and deep. Everything is gray and meaningless."
     }
 
-st.title(f"🤖 {persona} Assistant")
+# --- 5. CHAT INTERFACE ---
+st.title(f"🤖 {persona} Grounded Assistant")
 
+# Display History
 for msg in st.session_state.chat_history:
     st.chat_message("user" if isinstance(msg, HumanMessage) else "assistant").write(msg.content)
 
-# 4. HYBRID LOGIC
+# Input Logic
 if user_input := st.chat_input("Ask me anything..."):
-    # --- STEP A: LOCAL PYTORCH CALCULATION ---
-    # We use PyTorch to detect if the user is angry/happy before responding
-    with st.spinner("PyTorch analyzing intent..."):
+    # Step A: Pre-processing with Local PyTorch
+    with st.spinner("Analyzing sentiment..."):
         analysis = analyzer(user_input)[0]
-        user_mood = analysis['label'] # 'POSITIVE' or 'NEGATIVE'
+        user_mood = analysis['label']
         mood_score = round(analysis['score'], 2)
 
     st.session_state.chat_history.append(HumanMessage(content=user_input))
     st.chat_message("user").write(user_input)
 
+    # Step B: Response Generation
     with st.chat_message("assistant"):
         curr_time, tz_name = get_device_time()
         
+        # Determine if we need to RAG (Search)
         needs_fact_check = any(k in user_input.lower() for k in [
-            "who", "what", "where", "news", "price", "is it", "weather", "time in", "clock in"
+            "who", "what", "where", "news", "price", "is it", "weather", "time in", "studios", "policy", "location"
         ])
         
-        search_data = ""
+        search_data = "NO_EXTERNAL_SEARCH_RESULTS_FOUND"
         sources_text = ""
         
         if needs_fact_check and tavily_api_key:
-            with st.status("🔍 Verifying global facts...", expanded=False):
+            with st.status("🔍 Searching live database...", expanded=False):
                 tavily = TavilyClient(api_key=tavily_api_key)
-                query = f"{user_input} current info March 2026"
-                response = tavily.search(query=query, search_depth="advanced", max_results=3)
-                search_data = "\n".join([res['content'] for res in response['results']])
-                sources_text = "\n".join([f"- {res['title']}: {res['url']}" for res in response['results']])
+                query = f"{user_input} latest info 2026"
+                response = tavily.search(query=query, search_depth="advanced", max_results=4)
+                
+                # Format context for the LLM
+                search_data = "\n\n".join([
+                    f"--- DOCUMENT {i+1} ---\nSource: {res['title']}\nSnippet: {res['content']}" 
+                    for i, res in enumerate(response['results'])
+                ])
+                sources_text = "\n".join([f"- [{i+1}] {res['title']}: {res['url']}" for i, res in enumerate(response['results'])])
 
-        # --- STEP B: FEED PYTORCH DATA INTO SYSTEM PROMPT ---
+        # --- THE GROUNDING PROMPT ---
         sys_msg = (
-            f"{persona_prompts[persona]}\n"
-            f"USER_MOOD_DETECTED: {user_mood} (Confidence: {mood_score})\n" # Local AI insight
-            f"USER_TIMEZONE: {tz_name}\n"
-            f"USER_LOCAL_TIME: {curr_time}\n"
-            f"SEARCH_DATA: {search_data}\n"
-            f"SOURCES: {sources_text}\n\n"
+            f"SYSTEM ROLE: {persona_prompts[persona]}\n"
+            f"USER_METADATA: Sentiment={user_mood}, Timezone={tz_name}, LocalTime={curr_time}\n\n"
+            f"PROVIDED_CONTEXT:\n{search_data}\n\n"
             "INSTRUCTIONS:\n"
-            f"1. Stay in character. If USER_MOOD_DETECTED is NEGATIVE, be more empathetic (or sassier if Sassy).\n"
-            "2. Use USER_LOCAL_TIME for time questions."
+            "1. Answer ONLY using the PROVIDED_CONTEXT. Do not use outside knowledge.\n"
+            "2. If the context does not contain the answer, say: 'I don't have enough specific data to answer that accurately.'\n"
+            "3. Use inline citations like [1] or [2] next to facts extracted from the context.\n"
+            "4. Maintain your persona but prioritize FACTUAL ACCURACY over creativity.\n"
+            "5. If asked about time, refer to USER_METADATA LocalTime."
         )
 
-        full_response = st.write_stream(llm.stream([SystemMessage(content=sys_msg)] + st.session_state.chat_history))
-        st.session_state.chat_history.append(AIMessage(content=full_response))
+        # Generate and Stream
+        full_response = st.write_stream(
+            llm.stream([SystemMessage(content=sys_msg)] + st.session_state.chat_history)
+        )
+        
+        # Display Sources UI
+        if sources_text:
+            st.markdown(f"**Sources Found:**\n{sources_text}")
+            full_response += f"\n\nSources Found:\n{sources_text}"
 
+        st.session_state.chat_history.append(AIMessage(content=full_response))
