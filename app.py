@@ -1,165 +1,119 @@
 import streamlit as st
-import os, pytz
-import torch
 import time
-from transformers import pipeline
+import base64
+import os
 from datetime import datetime
+import pytz
+from PIL import Image
+from io import BytesIO
+
+# Core AI Libraries
 from langchain_groq import ChatGroq
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from tavily import TavilyClient
-from dotenv import load_dotenv
+from transformers import pipeline
+import torch
 
-# Load local environment variables if they exist
-load_dotenv()
+# --- CONFIG & SECRETS ---
+st.set_page_config(page_title="Global Vision AI 2026", layout="wide")
+groq_api_key = st.secrets["GROQ_API_KEY"]
+tavily_api_key = st.secrets["TAVILY_API_KEY"]
 
-# --- 1. CONFIG & API SETUP ---
-st.set_page_config(page_title="Global Hybrid AI", page_icon="🌍", layout="wide")
+# --- 1. OPTIMIZED MODELS (MARCH 2026) ---
+# Using Llama 4 Scout for high-speed Vision + Multilingual support
+llm = ChatGroq(model="meta-llama/llama-4-scout-17b-16e-instruct", temperature=0.6)
 
-groq_api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
-tavily_api_key = st.secrets.get("TAVILY_API_KEY") or os.getenv("TAVILY_API_KEY")
-
-# --- 2. LOCAL PYTORCH OPTIMIZATION ---
+# Local Sentiment Analysis (Running on CPU for stability)
 @st.cache_resource
 def load_sentiment_model():
-    return pipeline(
-        "sentiment-analysis", 
-        model="distilbert-base-uncased-finetuned-sst-2-english",
-        device=-1
-    )
+    return pipeline("sentiment-analysis", model="distilbert-base-uncased")
 
-analyzer = load_sentiment_model()
+sentiment_pipe = load_sentiment_model()
 
-# --- 3. UTILITIES: TIME & HISTORY ---
+# --- 2. UTILITY FUNCTIONS ---
 def get_device_time():
-    try:
-        user_tz_name = st.context.timezone or "UTC"
-        user_tz = pytz.timezone(user_tz_name)
-    except:
-        user_tz = pytz.timezone("Asia/Kuala_Lumpur") 
-        user_tz_name = "Asia/Kuala_Lumpur"
-    
-    now = datetime.now(user_tz)
-    return now.strftime('%I:%M %p, %A, %B %d, %Y'), user_tz_name
+    tz = pytz.timezone('Asia/Kuala_Lumpur') # Matches your local context
+    now = datetime.now(tz)
+    return now.strftime("%I:%M %p"), tz.zone
 
+def encode_image(uploaded_file):
+    return base64.b64encode(uploaded_file.read()).decode('utf-8')
+
+# --- 3. DYNAMIC PERSONAS ---
+persona_prompts = {
+    "Professional": "Tech Consultant. Mirrored dialect. Polite but efficient. Focus on technical accuracy.",
+    "Sassy": "Witty friend. High energy. Uses 'Abuden', 'Weh', and matches user's slang perfectly.",
+    "Emo": "Burnt-out KL Dev. Low energy. Mixes English/Malay/Slang. Everything is 'sien' or 'koyak'."
+}
+
+# --- 4. SESSION STATE ---
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# --- 4. SIDEBAR (REFINED) ---
+# --- 5. UI SIDEBAR ---
 with st.sidebar:
-    st.title("⚙️ AI Logic Center")
-    
-    # NEW: Model Selection for 2026 Models
-    st.subheader("🤖 Brain Selection")
-    selected_model_id = st.selectbox(
-        "Choose Groq Engine:",
-        [
-            "openai/gpt-oss-120b",           # High Reasoning
-            "meta-llama/llama-4-scout-17b-16e-instruct", # Ultra-Fast/Multimodal
-            "meta-llama/llama-3.3-70b-versatile", # Reliable Baseline
-            "qwen/qwen3-32b"                 # Best for Multilingual
-        ],
-        index=1,
-        help="GPT-OSS is best for logic; Llama 4 Scout is fastest."
-    )
-    
-    persona = st.selectbox("Persona:", ["Professional", "Sassy", "Emo"])
-    
-    st.divider()
-    st.subheader("🧠 Local PyTorch Engine")
-    device_info = "GPU (Accelerated)" if torch.cuda.is_available() else "CPU (Standard)"
-    st.info(f"Inference Mode: **{device_info}**")
-    st.caption("DistilBERT analyzing user intent locally.")
-
-    if st.button("🗑️ Reset Chat"):
+    st.title("⚙️ Control Panel")
+    persona = st.selectbox("Choose Persona", list(persona_prompts.keys()))
+    uploaded_image = st.file_uploader("📸 Upload Image", type=["jpg", "jpeg", "png"])
+    if st.button("Clear Chat"):
         st.session_state.chat_history = []
         st.rerun()
 
-    persona_prompts = {
-        "Professional": "You are a factual, elite assistant. Be polite and precise.",
-        "Sassy": "You are witty and sarcastic. Be funny but helpful.",
-        "Emo": "You are moody and deep. Everything is gray and meaningless."
-    }
+# --- 6. CHAT INTERFACE ---
+for message in st.session_state.chat_history:
+    # Handle rendering of both text and image history
+    role = "user" if isinstance(message, HumanMessage) else "assistant"
+    with st.chat_message(role):
+        if isinstance(message.content, list):
+            for item in message.content:
+                if item["type"] == "text": st.markdown(item["text"])
+        else:
+            st.markdown(message.content)
 
-# Initialize LLM with the selected model
-llm = ChatGroq(
-    model=selected_model_id, 
-    api_key=groq_api_key, 
-    streaming=True, 
-    temperature=0
-)
+if user_input := st.chat_input("Ask me about anything or the image..."):
+    # A. Initial Processing
+    curr_time, tz_name = get_device_time()
+    sentiment = sentiment_pipe(user_input)[0]
+    user_mood = sentiment['label']
+    
+    # B. Smarter Search Trigger
+    search_keywords = ["who", "what", "where", "how", "price", "news", "specs", "vs", "weather"]
+    needs_search = any(k in user_input.lower() for k in search_keywords)
+    
+    search_data = "No search performed."
+    if needs_search and tavily_api_key:
+        with st.spinner("🔍 Checking the internet..."):
+            tavily = TavilyClient(api_key=tavily_api_key)
+            results = tavily.search(query=user_input, search_depth="advanced")
+            search_data = "\n".join([f"- {r['content']}" for r in results['results'][:3]])
 
-# --- 5. CHAT INTERFACE ---
-st.title(f"🤖 {persona} Grounded Assistant")
-st.caption(f"Currently powered by: **{selected_model_id}**")
+    # C. Build Multimodal Content
+    content = [{"type": "text", "text": user_input}]
+    if uploaded_image:
+        base64_img = encode_image(uploaded_image)
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"}})
+        st.chat_message("user").image(uploaded_image, width=300)
 
-# Display History
-for msg in st.session_state.chat_history:
-    st.chat_message("user" if isinstance(msg, HumanMessage) else "assistant").write(msg.content)
+    # D. Final System Prompt (Anti-Time-Spam + Chameleon)
+    sys_msg = (
+        f"SYSTEM ROLE: {persona_prompts[persona]}\n"
+        "GLOBAL_HUMAN_PROTOCOL: Detect and MIRROR user dialect exactly (Manglish, AAV, etc). No formal translation.\n"
+        f"<REFERENCE_DATA_ONLY>\n"
+        f"Time: {curr_time} | Mood: {user_mood} | Context: {search_data}\n"
+        "</REFERENCE_DATA_ONLY>\n"
+        "INSTRUCTIONS:\n"
+        "1. DO NOT mention the time/sentiment unless the user asks.\n"
+        "2. Use the provided Context to answer factual questions.\n"
+        "3. Match the user's slang ratio (Rojak style)."
+    )
 
-# Input Logic
-if user_input := st.chat_input("Ask me anything..."):
-    # Step A: Pre-processing with Local PyTorch
-    with st.spinner("Analyzing sentiment..."):
-        analysis = analyzer(user_input)[0]
-        user_mood = analysis['label']
-        mood_score = round(analysis['score'], 2)
-
-    st.session_state.chat_history.append(HumanMessage(content=user_input))
-    st.chat_message("user").write(user_input)
-
-    # Step B: Response Generation
+    # E. Execution
     with st.chat_message("assistant"):
-        curr_time, tz_name = get_device_time()
-        
-        # Determine if we need to RAG (Search)
-        needs_fact_check = any(k in user_input.lower() for k in [
-            "who", "what", "where", "news", "price", "is it", "weather", "time in", "studios", "policy", "location"
-        ])
-        
-        search_data = "NO_EXTERNAL_SEARCH_RESULTS_FOUND"
-        sources_text = ""
-        
-        if needs_fact_check and tavily_api_key:
-            with st.status("🔍 Searching live database...", expanded=False):
-                tavily = TavilyClient(api_key=tavily_api_key)
-                query = f"{user_input} latest info 2026"
-                response = tavily.search(query=query, search_depth="advanced", max_results=4)
-                
-                search_data = "\n\n".join([
-                    f"--- DOCUMENT {i+1} ---\nSource: {res['title']}\nSnippet: {res['content']}" 
-                    for i, res in enumerate(response['results'])
-                ])
-                sources_text = "\n".join([f"- [{i+1}] {res['title']}: {res['url']}" for i, res in enumerate(response['results'])])
-
-        # --- THE GROUNDING PROMPT ---
-        sys_msg = (
-            f"SYSTEM ROLE: {persona_prompts[persona]}\n"
-            f"USER_METADATA: Sentiment={user_mood}, Timezone={tz_name}, LocalTime={curr_time}\n\n"
-            f"PROVIDED_CONTEXT:\n{search_data}\n\n"
-            f"INSTRUCTIONS:\n"
-            f"1. Answer ONLY using the PROVIDED_CONTEXT. Do not use outside knowledge.\n"
-            f"2. If the context does not contain the answer, say: 'I don't have enough specific data to answer that accurately.'\n"
-            f"3. Use inline citations like [1] or [2] next to facts extracted from the context.\n"
-            f"4. Maintain your persona but prioritize FACTUAL ACCURACY over creativity.\n"
-            f"5. If asked about time, refer to USER_METADATA LocalTime."
-        )
-
-        # Start timer for performance tracking
-        start_time = time.time()
-
-        # Generate and Stream
+        msg = HumanMessage(content=content)
         full_response = st.write_stream(
-            llm.stream([SystemMessage(content=sys_msg)] + st.session_state.chat_history)
+            llm.stream([SystemMessage(content=sys_msg)] + st.session_state.chat_history + [msg])
         )
-        
-        duration = round(time.time() - start_time, 2)
-        
-        # Display Performance & Sources
-        st.caption(f"⏱️ Inference: {duration}s | 🧠 Sentiment: {user_mood} ({mood_score})")
-        
-        if sources_text:
-            with st.expander("📚 View Sources"):
-                st.markdown(sources_text)
-            full_response += f"\n\nSources Found:\n{sources_text}"
-
-        st.session_state.chat_history.append(AIMessage(content=full_response))
+    
+    # Save History
+    st.session_state.chat_history.append(msg)
+    st.session_state.chat_history.append(AIMessage(content=full_response))
