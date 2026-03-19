@@ -1,12 +1,8 @@
-# Core Streamlit & logic
 streamlit
 langchain-groq
 python-dotenv
 pytz
 tavily-python
 requests
-
-# Optimized ML Stack (CPU-only to save RAM)
---find-links https://download.pytorch.org/whl/cpu/torch_stable.html
-torch==2.2.0+cpu
-transformers==4.38.0
+torch
+transformers
