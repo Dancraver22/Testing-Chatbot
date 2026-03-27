@@ -4,81 +4,65 @@ import pandas as pd
 from datetime import datetime
 from langchain_community.tools import WikipediaQueryRun
 from langchain_community.utilities import WikipediaAPIWrapper
-from langchain_core.tools import Tool
+from langchain.tools import tool
 from tavily import TavilyClient
 import streamlit as st
 
-# --- 1. GLOBAL TIME TOOL (Prevents Hallucination) ---
-def get_global_time(location: str = "Asia/Kuala_Lumpur"):
+# --- 1. LIVE GROUNDING TOOL (The Truth Engine) ---
+@tool
+def fact_check_search(query: str):
     """
-    Returns the current time for a specific location.
-    Default is Malaysia, but handles 'America/New_York', 'Europe/London', etc.
-    Input should be an IANA timezone string.
-    """
-    try:
-        tz = pytz.timezone(location)
-        now = datetime.now(tz)
-        return f"The current time in {location} is {now.strftime('%I:%M %p')} ({tz.zone})."
-    except Exception:
-        # Fallback if the AI provides a city name instead of a timezone string
-        return "Error: Please provide a valid IANA timezone string (e.g., 'Asia/Kuala_Lumpur')."
-
-time_tool = Tool(
-    name="get_world_clock",
-    func=get_global_time,
-    description="Use this to find the current time in ANY specific city or country worldwide."
-)
-
-# --- 2. TAVILY SEARCH TOOL (Grounded & Accurate) ---
-def tavily_search_tool(query: str):
-    """
-    Searches the live internet for verified, fact-grounded information.
-    Use this for news, current prices, technical specs, or real-time data.
+    Searches the live internet for verified facts, news, and CURRENT time/date. 
+    Use this for any real-world facts to prevent hallucinations.
     """
     try:
         client = TavilyClient(api_key=st.secrets["TAVILY_API_KEY"])
-        # 'advanced' search provides cleaner, AI-optimized context
-        results = client.search(query=query, search_depth="advanced", max_results=3)
+        results = client.search(query=query, search_depth="advanced", max_results=3, include_answer=True)
         
-        context = "\n".join([
-            f"Source: {r['url']}\nContent: {r['content']}" 
-            for r in results['results']
-        ])
-        return context if context else "No relevant search results found."
+        direct_answer = results.get('answer', "")
+        context = "\n".join([f"Source: {r['url']}\nContent: {r['content']}" for r in results['results']])
+        
+        return f"Direct Answer: {direct_answer}\n\nSupporting Details:\n{context}"
     except Exception as e:
         return f"Search Error: {e}"
 
-search_tool = Tool(
-    name="fact_check_search",
-    func=tavily_search_tool,
-    description="Essential for real-time facts, news, and verified data to prevent hallucinations."
-)
-
-# --- 3. WIKIPEDIA TOOL (Entity & History Expert) ---
-api_wrapper = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=2000)
-wiki_tool = WikipediaQueryRun(api_wrapper=api_wrapper)
-
-# --- 4. DATA PERSISTENCE TOOL (The Secretary) ---
-def save_research_to_file(data: str):
+# --- 2. DYNAMIC TIME CONVERTER ---
+@tool
+def get_world_clock(location: str):
     """
-    Saves structured text or research findings into a local .txt file.
-    Use this ONLY when the user explicitly asks to 'save', 'export', or 'archive'.
+    Returns the current time for ANY specific city or timezone.
+    Input 'location' should be a city name (e.g., 'Mumbai', 'New York').
     """
     try:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"research_{timestamp}.txt"
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write(f"--- AI GENERATED RESEARCH LOG ---\nTimestamp: {datetime.now()}\n\n{data}")
-        return f"✅ Success: Data archived to {filename}"
+        # Search for the best timezone match in pytz
+        best_match = None
+        for tz in pytz.all_timezones:
+            if location.lower().replace(" ", "_") in tz.lower():
+                best_match = tz
+                break
+        
+        if not best_match:
+            return f"Couldn't find precise timezone for {location}. Try a major capital city."
+
+        target_tz = pytz.timezone(best_match)
+        now = datetime.now(target_tz)
+        return f"The current time in {location} ({best_match}) is {now.strftime('%I:%M %p')}."
     except Exception as e:
-        return f"❌ System Error saving file: {e}"
+        return f"Error: {e}"
 
-save_tool = Tool(
-    name="save_to_file",
-    func=save_research_to_file,
-    description="Saves information to a permanent local text file for future reference."
-)
+# --- 3. WIKIPEDIA & ARCHIVE ---
+api_wrapper = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=1500)
+wiki_tool = WikipediaQueryRun(api_wrapper=api_wrapper)
 
-# --- 5. EXPORT LIST ---
-# This list is imported by app.py to initialize the Agent
-all_tools = [time_tool, search_tool, wiki_tool, save_tool]
+@tool
+def save_research_to_file(data: str):
+    """Saves text findings into a local .txt file. Use only if user asks to save/export."""
+    try:
+        filename = f"research_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(data)
+        return f"✅ Archived to {filename}"
+    except Exception as e:
+        return f"❌ Error: {e}"
+
+all_tools = [get_world_clock, fact_check_search, wiki_tool, save_research_to_file]
