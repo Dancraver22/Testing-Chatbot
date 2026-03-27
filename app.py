@@ -10,7 +10,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from tools import all_tools 
 
 # --- 1. CONFIG & UI SETUP ---
-st.set_page_config(page_title="Global Vision AI", layout="wide", page_icon="🌐")
+st.set_page_config(page_title="AI Prototype", layout="wide", page_icon="🌐")
 
 # --- 2. IP & TIMEZONE DETECTION ---
 # Detects user's actual location via browser JS
@@ -33,9 +33,9 @@ def process_data(file):
 
 # Personas
 personas = {
-    "Professional": "Tech Consultant. Efficient and polite.",
-    "Sassy": "Witty friend. Use 'Abuden', 'Weh', and Manglish slang.",
-    "Emo": "KL Dev. Everything is 'sien' or 'koyak'. Low energy."
+    "Professional": "Professional. Efficient and polite.",
+    "Sassy": "Witty friend. sassy, caring and Manglish slang.",
+    "Emo": "Depressed. No hope in life. Low energy."
 }
 
 if "chat_history" not in st.session_state:
