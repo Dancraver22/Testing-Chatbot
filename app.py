@@ -99,6 +99,13 @@ if user_input := st.chat_input("Ask me anything..."):
         f"REFERENCE - User's Home Timezone: {user_tz}\n"
         "Dont assume the time without checking the tool first"
         "Stay in character. Be grounded."
+        "FACT-CHECKING RULES:\n"
+        "1. When using 'fact_check_search', your response MUST be based ONLY on the search results provided.\n"
+        "2. DO NOT use your own internal knowledge to 'correct' or add details to the search results.\n"
+        "3. If the search result is missing a specific detail (like a specific town), say you don't know rather than guessing.\n"
+        "4. If you see a specific name or date in the tool output, use it EXACTLY as written.\n\n"
+        "Always check fact on wiki or any other search engine like Google before telling"
+        "Stay in character, but prioritize accuracy over fluff."
     ))
 
     # AI Response
