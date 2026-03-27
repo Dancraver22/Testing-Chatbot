@@ -62,74 +62,68 @@ with st.sidebar:
         st.session_state.chat_history = []
         st.rerun()
 
-# --- 6. RENDER CHAT HISTORY ---
-for message in st.session_state.chat_history:
-    role = "user" if isinstance(message, HumanMessage) else "assistant"
-    with st.chat_message(role):
-        if isinstance(message.content, list):
-            for item in message.content:
-                if item["type"] == "text": st.markdown(item["text"])
-        else:
-            st.markdown(message.content)
+# --- 6. RENDER CHAT HISTORY (Enhanced for UI Stability) ---
+chat_container = st.container()
+with chat_container:
+    for message in st.session_state.chat_history:
+        role = "user" if isinstance(message, HumanMessage) else "assistant"
+        with st.chat_message(role):
+            if isinstance(message.content, list):
+                for item in message.content:
+                    if item["type"] == "text": st.markdown(item["text"])
+            else:
+                st.markdown(message.content)
 
 # --- 7. MAIN EXECUTION LOOP ---
-if user_input := st.chat_input("Ask about the data, the image, or the world..."):
+if user_input := st.chat_input("Message the agent..."):
     
-    # A. Data Context Processing
-    data_context = "No file uploaded."
-    if uploaded_data:
-        df, data_summary = process_data_file(uploaded_data)
-        if df is not None:
-            data_context = f"CURRENT_DATASET_SUMMARY: {data_summary}"
-            st.info(f"📊 Dataset Loaded: {len(df)} rows found.")
-
-    # B. Construct User Message (Immediately show in UI)
-    user_content = [{"type": "text", "text": user_input}]
+    # 1. IMMEDIATE STATE UPDATE (Stops the "Icon Combine" glitch)
+    user_msg = HumanMessage(content=[{"type": "text", "text": user_input}])
     if uploaded_image:
         base_64_img = encode_image(uploaded_image)
-        user_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base_64_img}"}})
+        user_msg.content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base_64_img}"}})
     
-    user_msg = HumanMessage(content=user_content)
-    
-    with st.chat_message("user"):
-        st.markdown(user_input)
-        if uploaded_image:
-            st.image(uploaded_image, width=300)
-
-    # Save to history immediately to prevent UI lag
     st.session_state.chat_history.append(user_msg)
+    
+    # Force the UI to show the user message immediately before thinking
+    with chat_container:
+        with st.chat_message("user"):
+            st.markdown(user_input)
+            if uploaded_image: st.image(uploaded_image, width=300)
 
-    # C. System Prompt Construction
+    # 2. SYSTEM CONTEXT (Kept your Pandas & Persona logic)
+    data_context = "No file uploaded."
+    if uploaded_data:
+        _, data_summary = process_data_file(uploaded_data)
+        data_context = f"CURRENT_DATASET_SUMMARY: {data_summary}"
+
     sys_msg = SystemMessage(content=(
         f"SYSTEM ROLE: {persona_prompts[persona]}\n"
         f"DATA_CONTEXT: {data_context}\n"
-        "INSTRUCTIONS: Mirror user dialect (Manglish). Respond based on Data_Context if provided. "
-        "Use 'get_world_clock' for ANY time query. Use 'fact_check_search' for news/facts. "
-        "NEVER guess or calculate time/facts manually. ALWAYS use a tool."
+        "INSTRUCTIONS: Mirror user dialect (Manglish). Never guess time/facts. Use tools."
     ))
 
-    # D. Agent Reasoning & Tool Execution
+    # 3. AGENT EXECUTION
     with st.chat_message("assistant"):
-        # 1. First Call: AI decides which tool to use
+        # We use a placeholder so the text streams into a fresh box
+        response_placeholder = st.empty()
+        
+        # Decision: Thinking phase
         response = llm_with_tools.invoke([sys_msg] + st.session_state.chat_history)
         
         if response.tool_calls:
             for tool_call in response.tool_calls:
-                # Find tool by name
                 selected_tool = next(t for t in all_tools if t.name == tool_call["name"])
-                
-                # Show tool activity to user
-                with st.status(f"🛠️ Agent using {selected_tool.name}...", expanded=False) as status:
+                with st.status(f"🛠️ Using {selected_tool.name}...", expanded=False) as status:
                     observation = selected_tool.func(**tool_call["args"])
-                    status.update(label=f"✅ {selected_tool.name} completed!", state="complete")
+                    status.update(label="✅ Task Complete", state="complete")
                 
-                # 2. Final Pass: Use the tool result to write final answer
+                # Final pass with tool data
                 final_stream = llm.stream([sys_msg] + st.session_state.chat_history + [response, AIMessage(content=str(observation))])
-                ai_content = st.write_stream(final_stream)
+                ai_content = response_placeholder.write_stream(final_stream)
         else:
-            # Simple chat response if no tools needed
-            ai_content = st.write_stream(llm.stream([sys_msg] + st.session_state.chat_history))
+            ai_content = response_placeholder.write_stream(llm.stream([sys_msg] + st.session_state.chat_history))
 
-    # E. Save Response & Refresh UI
+    # 4. FINAL SYNC & RESET
     st.session_state.chat_history.append(AIMessage(content=ai_content))
-    st.rerun()
+    st.rerun() # Hard reset to clean up the UI icons
