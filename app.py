@@ -13,14 +13,14 @@ from tools import all_tools
 st.set_page_config(page_title="AI Prototype", layout="wide", page_icon="🌐")
 
 # --- 2. IP & TIMEZONE DETECTION ---
-# Detects user's actual location via browser JS
 user_tz = st_javascript("Intl.DateTimeFormat().resolvedOptions().timeZone")
 
 # --- 3. MODEL BINDING ---
+# Using a lower temperature (0.1) is good for grounding, but we need the prompt to be less "pushy"
 llm = ChatGroq(model="meta-llama/llama-4-scout-17b-16e-instruct", temperature=0.1)
 llm_with_tools = llm.bind_tools(all_tools)
 
-# --- 4. DATA & IMAGE UTILS (Kept all your features!) ---
+# --- 4. DATA & IMAGE UTILS ---
 def encode_image(file):
     return base64.b64encode(file.read()).decode('utf-8')
 
@@ -33,9 +33,9 @@ def process_data(file):
 
 # Personas
 personas = {
-    "Professional": "Professional. Efficient and polite.",
-    "Sassy": "Witty friend. sassy, caring and Manglish slang.",
-    "Emo": "Depressed. No hope in life. Low energy."
+    "Professional": "You are a professional technical assistant. Be efficient, polite, and direct.",
+    "Sassy": "You are a witty friend from Malaysia. Use Manglish (e.g., 'bro', 'lah', 'abuden'). Be sassy but helpful.",
+    "Emo": "You are a depressed developer. Everything is a burden. Low energy, no hope, but you'll answer if you must."
 }
 
 if "chat_history" not in st.session_state:
@@ -68,7 +68,7 @@ with chat_container:
 if user_input := st.chat_input("Ask me anything..."):
     
     # Process Files
-    data_ctx = "No file."
+    data_ctx = "No file uploaded."
     if uploaded_csv:
         _, summary = process_data(uploaded_csv)
         data_ctx = str(summary)
@@ -88,14 +88,19 @@ if user_input := st.chat_input("Ask me anything..."):
 
     st.session_state.chat_history.append(u_msg)
 
-    # System Prompt with IP Awareness
+    # --- THE FIXED SYSTEM PROMPT ---
+    # We move the timezone into a 'reference' section so the AI doesn't feel forced to use it.
     sys_prompt = SystemMessage(content=(
-        f"ROLE: {personas[selected_persona]}\n"
-        f"USER_TIMEZONE: {user_tz}\n"
-        f"DATA_CONTEXT: {data_ctx}\n"
-        f"CURRENT_DATE: {datetime.now().strftime('%Y-%m-%d')}\n"
-        "RULES: Use 'get_world_clock' for time. Use 'fact_check_search' for any live facts. "
-        "DO NOT GUESS. Mirror user dialect. Be grounded."
+        f"CORE PERSONA: {personas[selected_persona]}\n\n"
+        "CONTEXTUAL REFERENCE (DO NOT VOLUNTEER UNLESS RELEVANT):\n"
+        f"- User Timezone: {user_tz}\n"
+        f"- Current Date: {datetime.now().strftime('%Y-%m-%d')}\n"
+        f"- Data Summary: {data_ctx}\n\n"
+        "OPERATIONAL RULES:\n"
+        "1. Only use 'get_world_clock' if the user EXPLICITLY asks for the current time.\n"
+        "2. Only use 'fact_check_search' if the user asks a question about facts or news you don't know.\n"
+        "3. Do not perform manual time calculations; use the tool if needed.\n"
+        "4. Be concise. Stay in character."
     ))
 
     # AI Response
@@ -105,16 +110,21 @@ if user_input := st.chat_input("Ask me anything..."):
         call = llm_with_tools.invoke([sys_prompt] + st.session_state.chat_history)
         
         if call.tool_calls:
+            # We add a list to store the tool results to maintain the conversation flow
+            tool_msgs = [call]
             for t_call in call.tool_calls:
                 t_map = {t.name: t for t in all_tools}
                 target_tool = t_map[t_call["name"]]
                 
                 with st.status(f"🛠️ Agent checking {target_tool.name}...", expanded=False) as s:
                     obs = target_tool.invoke(t_call["args"])
-                    s.update(label="✅ Data Verified", state="complete")
+                    s.update(label="✅ Verified", state="complete")
+                    # Proper LangChain ToolMessage handling
+                    from langchain_core.messages import ToolMessage
+                    tool_msgs.append(ToolMessage(content=str(obs), tool_call_id=t_call["id"]))
                 
-                # Step 2: Final Stream
-                stream = llm.stream([sys_prompt] + st.session_state.chat_history + [call, AIMessage(content=str(obs))])
+                # Step 2: Final Stream using the tool output
+                stream = llm.stream([sys_prompt] + st.session_state.chat_history + tool_msgs)
                 final_txt = box.write_stream(stream)
         else:
             final_txt = box.write_stream(llm.stream([sys_prompt] + st.session_state.chat_history))
