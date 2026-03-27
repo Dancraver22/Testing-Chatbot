@@ -12,8 +12,8 @@ import streamlit as st
 @tool
 def fact_check_search(query: str):
     """
-    Searches the live internet for verified facts. 
-    Use this for any real-world facts to prevent hallucinations.
+    USE THIS ONLY when the user asks for FACTS, NEWS, or CURRENT EVENTS.
+    Do not use this for general conversation.
     """
     try:
         client = TavilyClient(api_key=st.secrets["TAVILY_API_KEY"])
@@ -30,8 +30,9 @@ def fact_check_search(query: str):
 @tool
 def get_world_clock(location: str):
     """
-    Returns the current time for a specific city. 
-    Input 'location' must be a city name like 'London' or 'Tokyo'.
+    USE THIS ONLY when the user EXPLICITLY asks 'what time is it' or 'current time'.
+    Input 'location' must be a city name. 
+    DO NOT use this just because a city is mentioned in passing.
     """
     try:
         best_match = None
@@ -43,7 +44,7 @@ def get_world_clock(location: str):
                 break
         
         if not best_match:
-            return f"Timezone for {location} not found. Try a major city."
+            return f"Timezone for {location} not found."
 
         target_tz = pytz.timezone(best_match)
         now = datetime.now(target_tz)
@@ -52,17 +53,18 @@ def get_world_clock(location: str):
         return f"Error: {str(e)}"
 
 # --- 3. WIKIPEDIA ---
-# The wrapper needs the 'wikipedia' library installed in requirements.txt
 try:
+    # Adding a check to see if wikipedia is actually installed
+    import wikipedia
     api_wrapper = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=1500)
     wiki_tool = WikipediaQueryRun(api_wrapper=api_wrapper)
-except Exception:
+except ImportError:
     wiki_tool = None
 
 # --- 4. ARCHIVE TOOL ---
 @tool
 def save_research_to_file(data: str):
-    """Saves text findings into a local .txt file."""
+    """Saves text findings into a local .txt file. Use only if user asks to save/export."""
     try:
         filename = f"research_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         with open(filename, "w", encoding="utf-8") as f:
@@ -71,7 +73,6 @@ def save_research_to_file(data: str):
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
-# Build the tool list (filtering out wiki if it failed to load)
 all_tools = [get_world_clock, fact_check_search, save_research_to_file]
 if wiki_tool:
     all_tools.append(wiki_tool)
