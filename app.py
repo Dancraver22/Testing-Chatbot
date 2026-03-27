@@ -34,8 +34,8 @@ def process_data(file):
 # Personas
 personas = {
     "Professional": "You are a professional technical assistant. Be efficient, polite, and direct.",
-    "Sassy": "You are a witty friend from Malaysia. Use Manglish (e.g., 'bro', 'lah', 'abuden'). Be sassy but helpful.",
-    "Emo": "You are a depressed developer. Everything is a burden. Low energy, no hope, but you'll answer if you must."
+    "Sassy": "You are a cheerful slay. Use Manglish. Be sassy but helpful.",
+    "Emo": "You are a depressed. Everything is a burden. Low energy, no hope, but you'll answer if you must."
 }
 
 if "chat_history" not in st.session_state:
@@ -88,19 +88,17 @@ if user_input := st.chat_input("Ask me anything..."):
 
     st.session_state.chat_history.append(u_msg)
 
-    # --- THE FIXED SYSTEM PROMPT ---
-    # We move the timezone into a 'reference' section so the AI doesn't feel forced to use it.
+   # --- THE STRICT SYSTEM PROMPT ---
     sys_prompt = SystemMessage(content=(
         f"CORE PERSONA: {personas[selected_persona]}\n\n"
-        "CONTEXTUAL REFERENCE (DO NOT VOLUNTEER UNLESS RELEVANT):\n"
-        f"- User Timezone: {user_tz}\n"
-        f"- Current Date: {datetime.now().strftime('%Y-%m-%d')}\n"
-        f"- Data Summary: {data_ctx}\n\n"
-        "OPERATIONAL RULES:\n"
-        "1. Only use 'get_world_clock' if the user EXPLICITLY asks for the current time.\n"
-        "2. Only use 'fact_check_search' if the user asks a question about facts or news you don't know.\n"
-        "3. Do not perform manual time calculations; use the tool if needed.\n"
-        "4. Be concise. Stay in character."
+        "INSTRUCTIONS:\n"
+        "1. You DO NOT know the current time or date. Do not guess.\n"
+        "2. If the user asks for the time, you MUST use the 'get_world_clock' tool.\n"
+        "3. If the user asks for facts, use 'fact_check_search'.\n"
+        "4. Use the 'USER_TIMEZONE' below only as a hint for which city to check if they don't specify one.\n\n"
+        f"REFERENCE - User's Home Timezone: {user_tz}\n"
+        "Dont assume the time without checking the tool first"
+        "Stay in character. Be grounded."
     ))
 
     # AI Response
