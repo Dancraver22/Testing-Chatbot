@@ -8,3 +8,4 @@ langchain-groq
 langchain-community
 tavily-python
 pillow
+pydantic
