@@ -7,12 +7,23 @@ from langchain_community.utilities import WikipediaAPIWrapper
 from langchain.tools import tool
 from tavily import TavilyClient
 import streamlit as st
+from pydantic import BaseModel, Field
 
-# --- 1. LIVE GROUNDING TOOL (The Truth Engine) ---
-@tool
+# --- 1. SCHEMAS (This prevents the TypeError by forcing strict inputs) ---
+class QueryInput(BaseModel):
+    query: str = Field(description="The search query for live facts or current events.")
+
+class LocationInput(BaseModel):
+    location: str = Field(description="The city or country name, e.g., 'Kuala Lumpur' or 'London'.")
+
+class SaveInput(BaseModel):
+    data: str = Field(description="The text content to be saved to a file.")
+
+# --- 2. LIVE GROUNDING TOOL ---
+@tool("fact_check_search", args_schema=QueryInput)
 def fact_check_search(query: str):
     """
-    Searches the live internet for verified facts, news, and CURRENT time/date. 
+    Searches the live internet for verified facts, news, and CURRENT info. 
     Use this for any real-world facts to prevent hallucinations.
     """
     try:
@@ -24,20 +35,22 @@ def fact_check_search(query: str):
         
         return f"Direct Answer: {direct_answer}\n\nSupporting Details:\n{context}"
     except Exception as e:
-        return f"Search Error: {e}"
+        return f"Search Error: {str(e)}"
 
-# --- 2. DYNAMIC TIME CONVERTER ---
-@tool
+# --- 3. DYNAMIC TIME CONVERTER ---
+@tool("get_world_clock", args_schema=LocationInput)
 def get_world_clock(location: str):
     """
     Returns the current time for ANY specific city or timezone.
     Input 'location' should be a city name (e.g., 'Mumbai', 'New York').
     """
     try:
-        # Search for the best timezone match in pytz
         best_match = None
+        # Standardize input for pytz (e.g., 'kuala lumpur' -> 'kuala_lumpur')
+        search_term = location.strip().replace(" ", "_").lower()
+
         for tz in pytz.all_timezones:
-            if location.lower().replace(" ", "_") in tz.lower():
+            if search_term in tz.lower():
                 best_match = tz
                 break
         
@@ -48,13 +61,14 @@ def get_world_clock(location: str):
         now = datetime.now(target_tz)
         return f"The current time in {location} ({best_match}) is {now.strftime('%I:%M %p')}."
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error: {str(e)}"
 
-# --- 3. WIKIPEDIA & ARCHIVE ---
+# --- 4. WIKIPEDIA ---
 api_wrapper = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=1500)
 wiki_tool = WikipediaQueryRun(api_wrapper=api_wrapper)
 
-@tool
+# --- 5. ARCHIVE TOOL ---
+@tool("save_research_to_file", args_schema=SaveInput)
 def save_research_to_file(data: str):
     """Saves text findings into a local .txt file. Use only if user asks to save/export."""
     try:
@@ -63,6 +77,6 @@ def save_research_to_file(data: str):
             f.write(data)
         return f"✅ Archived to {filename}"
     except Exception as e:
-        return f"❌ Error: {e}"
+        return f"❌ Error: {str(e)}"
 
 all_tools = [get_world_clock, fact_check_search, wiki_tool, save_research_to_file]
