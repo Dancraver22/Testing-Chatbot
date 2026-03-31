@@ -1,13 +1,3 @@
 streamlit
 streamlit-javascript
-pandas
-openpyxl
-pytz
-langchain
-langchain-groq
-langchain-community
-tavily-python
-pillow
-wikipedia
-chromadb
-sentence-transformers
+requests
