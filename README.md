@@ -1,3 +1,12 @@
+---
+title: RAG Prototype Backend
+emoji: 🤖
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 🤖 Global Vision AI: Multimodal RAG & Data Operations Agent
 Live Demo: [View Prototype](https://rag-agent-prototype-ecvzz8hjn2aauzprcae5sc.streamlit.app/)
 
