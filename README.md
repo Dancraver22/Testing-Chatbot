@@ -7,47 +7,39 @@ sdk: docker
 pinned: false
 ---
 
-🤖 Global Vision AI: Multimodal RAG & Data Operations Agent
-Live Demo: [View Prototype](https://rag-agent-prototype-ecvzz8hjn2aauzprcae5sc.streamlit.app/)
+# 🤖 Global Vision AI: Multimodal RAG & Data Operations Agent
 
-📖 Project Overview
-Global Vision AI is a High-Performance AI Orchestration Framework built to bridge the gap between Large Language Models (LLMs) and structured business data. Unlike standard chatbots, this system implements a Grounded RAG (Retrieval-Augmented Generation) pipeline that combines live web intelligence with local data analytics.
+**Live Backend:** [Hugging Face Space](https://huggingface.co/spaces/Dancraver/RAG_Prototype)  
+**Live Demo:** [View Streamlit Prototype](https://rag-agent-prototype-ecvzz8hjn2aauzprcae5sc.streamlit.app/)
 
-Designed for the 2026 tech landscape, this agent focuses on Technical Agility: shifting between complex data processing, visual recognition, and high-context conversational personas.
+## 📖 Project Overview
+Global Vision AI is a high-performance AI orchestration framework designed for the 2026 tech landscape. Built by a **Technical Artist**, this system bridges the gap between Large Language Models (LLMs) and structured technical data. It implements a **Grounded RAG (Retrieval-Augmented Generation)** pipeline that combines live web intelligence with local data analytics and visual recognition.
 
-🚀 Core Technical Capabilities
-🧠 Multimodal Intelligence & Vision
-Computer Vision Integration: Implements asynchronous image encoding (Base64) to allow the Llama 4 Scout architecture to analyze visual data in real-time.
+## 🚀 Core Technical Capabilities
 
-NLP Sentiment Engine: Utilizes a local distilbert-base-uncased transformer pipeline to detect user mood and dynamically adjust response parameters without increasing API latency.
+### 🧠 Multimodal Intelligence & Vision
+* **Computer Vision Integration:** Implements asynchronous image encoding (Base64) allowing the **Llama 4 Scout** architecture to analyze visual data in real-time.
+* **NLP Sentiment Engine:** Utilizes local transformers to detect user intent and dynamically adjust response parameters, mirroring local Malaysian dialects (Manglish/Rojak) for enhanced engagement.
 
-📊 Data Operations (Pandas & Numpy)
-Automated Data Ingestion: Integrated a specialized pipeline for CSV/Excel processing.
+### 📊 Data Operations (Pandas & Vector Memory)
+* **Automated Data Ingestion:** Specialized pipeline for CSV/Excel processing using Pandas to generate "source of truth" metadata snapshots.
+* **Vector Persistence:** Integrated **ChromaDB** for long-term memory, ensuring the agent "remembers" technical context across sessions.
 
-Contextual Summarization: Uses Pandas to generate metadata snapshots (statistical descriptions, head/tail samples) to provide the LLM with a structured "source of truth," eliminating hallucinations in data-heavy queries.
+## 📈 Engineering Roadmap
+- [x] **Phase 1:** Integrated Pandas/Numpy for structured data analysis.
+- [x] **Phase 2:** Migrated to **Dockerized FastAPI** backend for production stability.
+- [x] **Phase 3:** Implemented **Vector Database Persistence (ChromaDB)** for long-term memory.
+- [ ] **Phase 4:** **[IN PROGRESS]** Refactoring Image-to-Text Pipeline to improve visual technical description accuracy.
+- [ ] **Phase 5:** **[UPCOMING]** Deploying specialized sub-agents for dedicated Shader/VFX code auditing.
 
-🔍 Grounded RAG & Web Orchestration
-Internet-Augmented Retrieval: Leverages the Tavily Search API for real-time fact-checking and news retrieval.
+---
 
-Intent-Based Search Triggering: Implements a keyword-density classifier to determine when an external search is architecturally necessary, optimizing token usage.
+## ⚠️ Prototype Disclaimer & Liability
+**This project is a technical prototype and is currently under active development.**
 
-🎭 Dynamic Persona Engine
-Context-Aware Personalization: A modular system that switches between Professional (Tech Consultant), Sassy (Social/Slang), and Internal Dev (Technical/Burnout) styles, mirroring local Malaysian dialects (Manglish/Rojak) for enhanced user engagement.
+* **Accuracy:** As an AI-driven system, the agent may occasionally generate "hallucinations" or inaccurate data summaries. Always verify critical technical data manually.
+* **Liability:** The developer is not responsible for any decisions made based on the AI's output or any data loss occurring during the use of this prototype.
+* **Data Privacy:** This prototype uses third-party APIs (Groq, Tavily). Avoid uploading sensitive or proprietary corporate data.
+* **Continuous Improvement:** We are constantly refining the RAG retrieval logic and vision processing to minimize errors.
 
-🛠️ Specialist Tech Stack
-Orchestration: LangChain (Message History & System Prompt Engineering)
-
-Inference Power: Groq (Meta-Llama-4-Scout-17B Architecture)
-
-Data Science: Pandas, NumPy, OpenPyXL
-
-Machine Learning: Hugging Face Transformers (PyTorch)
-
-Infrastructure: Streamlit (UI), REST APIs, IANA Timezone Management, Base64 Image Processing
-
-📈 Engineering Roadmap
-[COMPLETED] Integrated Pandas/Numpy for structured data analysis.
-
-[IN PROGRESS] Transitioning from temporary st.session_state to Vector Database Persistence (ChromaDB/Pinecone) for long-term user memory.
-
-[UPCOMING] Implementation of FastAPI to decouple the backend logic from the UI, turning the agent into a scalable microservice.
+---
