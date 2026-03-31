@@ -9,7 +9,7 @@ from streamlit_javascript import st_javascript
 st.set_page_config(page_title="Global Vision AI", layout="wide", page_icon="🌐")
 
 # Replace this with your actual Render URL from your dashboard
-BACKEND_URL = "https://rag-agent-prototype.onrender.com" 
+BACKEND_URL = "https://dancraver-rag-prototype.hf.space" 
 
 # --- 2. IP & TIMEZONE DETECTION ---
 user_tz = st_javascript("Intl.DateTimeFormat().resolvedOptions().timeZone")
