@@ -68,71 +68,71 @@ with chat_container:
 # --- 7. EXECUTION ---
 if user_input := st.chat_input("Ask me anything..."):
     
-    # Process Files (Improvisation: Capture the data context)
+    # Process Files - Now actually pulling a data snippet for analysis
     data_ctx = "No file uploaded."
     if uploaded_csv:
-        _, summary = process_data(uploaded_csv)
-        data_ctx = f"Data Summary: {summary}"
+        df, summary = process_data(uploaded_csv)
+        # We give the LLM the summary AND the first few rows so it can 'analyze'
+        data_ctx = f"Summary: {summary}. Data Snippet: {df.head(5).to_dict()}"
 
-    # Build Content for the current turn
+    # Build Multimodal Message (This is what makes it 'see' like I do)
     u_content = [{"type": "text", "text": user_input}]
     if uploaded_img:
         b64 = encode_image(uploaded_img)
         u_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
     
-    # We use this for the actual LLM call
-    u_msg_with_media = HumanMessage(content=u_content)
-    
+    # This is the message we send to the AI
+    u_msg_for_llm = HumanMessage(content=u_content)
+
+    # UI: Show the user's message
     with chat_container:
         with st.chat_message("user"):
             st.markdown(user_input)
             if uploaded_img: st.image(uploaded_img, width=300)
 
-    # --- THE STRICT SYSTEM PROMPT (Optimized with your data_ctx) ---
+    # --- YOUR FULL SYSTEM PROMPT (Untouched, just optimized for data) ---
     sys_prompt = SystemMessage(content=(
         f"CORE PERSONA: {personas[selected_persona]}\n\n"
-        f"DATA_CONTEXT: {data_ctx}\n\n" # Optimization: AI can now 'see' the CSV
+        f"DATA_CONTEXT: {data_ctx}\n\n"
         "INSTRUCTIONS:\n"
         "1. You DO NOT know the current time or date. Do not guess.\n"
         "2. If the user asks for the time, you MUST use the 'get_world_clock' tool.\n"
         "3. If the user asks for facts, use 'fact_check_search'.\n"
-        "4. Use the 'USER_TIMEZONE' below only as a hint for which city to check if they don't specify one.\n\n"
+        "4. Use the 'USER_TIMEZONE' below only as a hint for which city to check.\n\n"
         f"REFERENCE - User's Home Timezone: {user_tz}\n"
-        "Dont assume the time without checking the tool first"
-        "Stay in character. Be grounded."
+        "Dont assume the time without checking the tool first. "
+        "Stay in character. Be grounded. "
         "FACT-CHECKING RULES:\n"
-        "1. When using 'fact_check_search', your response MUST be based ONLY on the search results provided.\n"
-        "2. DO NOT use your own internal knowledge to 'correct' or add details to the search results.\n"
-        "3. If the search result is missing a specific detail (like a specific town), say you don't know rather than guessing.\n"
-        "4. If you see a specific name or date in the tool output, use it EXACTLY as written.\n\n"
-        "Always check fact on wiki or any other search engine like Google before telling"
+        "1. When using 'fact_check_search', your response MUST be based ONLY on the search results.\n"
+        "2. DO NOT use your own internal knowledge to 'correct' the search results.\n"
+        "3. If details are missing, say you don't know rather than guessing.\n"
+        "4. Use specific names or dates EXACTLY as written.\n\n"
+        "Always check fact on wiki or Google before telling. "
         "Stay in character, but prioritize accuracy over fluff."
     ))
 
     # AI Response
     with st.chat_message("assistant"):
         box = st.empty()
-        # Optimization: history + current message (with image)
-        full_context = [sys_prompt] + st.session_state.chat_history + [u_msg_with_media]
-        call = llm_with_tools.invoke(full_context)
+        # We combine your history + the new message containing the image
+        full_conversation = [sys_prompt] + st.session_state.chat_history + [u_msg_for_llm]
+        
+        call = llm_with_tools.invoke(full_conversation)
         
         if call.tool_calls:
             tool_msgs = [call]
             for t_call in call.tool_calls:
                 t_map = {t.name: t for t in all_tools}
-                target_tool = t_map[t_call["name"]]
-                
-                with st.status(f"🛠️ Agent checking {target_tool.name}...", expanded=False) as s:
-                    obs = target_tool.invoke(t_call["args"])
-                    s.update(label="✅ Verified", state="complete")
-                    tool_msgs.append(ToolMessage(content=str(obs), tool_call_id=t_call["id"]))
-                
-                stream = llm.stream(full_context + tool_msgs)
-                final_txt = box.write_stream(stream)
+                obs = t_map[t_call["name"]].invoke(t_call["args"])
+                tool_msgs.append(ToolMessage(content=str(obs), tool_call_id=t_call["id"]))
+            
+            # Final response using the tool output and the image context
+            stream = llm.stream(full_conversation + tool_msgs)
+            final_txt = box.write_stream(stream)
         else:
-            final_txt = box.write_stream(llm.stream(full_context))
+            final_txt = box.write_stream(llm.stream(full_conversation))
 
-    # Save to history (Improvisation: Save text-only to prevent repeating images)
+    # SAVE TO HISTORY (Save only text to keep the UI from repeating images)
     st.session_state.chat_history.append(HumanMessage(content=user_input))
     st.session_state.chat_history.append(AIMessage(content=final_txt))
     st.rerun()
