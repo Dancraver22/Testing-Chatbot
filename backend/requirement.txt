@@ -1,1 +1,14 @@
-
+fastapi
+uvicorn
+python-multipart
+langchain
+langchain-groq
+langchain-community
+tavily-python
+wikipedia
+chromadb
+sentence-transformers
+pandas
+openpyxl
+pytz
+pillow
