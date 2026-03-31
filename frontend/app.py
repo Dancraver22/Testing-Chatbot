@@ -40,7 +40,7 @@ with st.sidebar:
     selected_persona = st.selectbox("Persona", list(personas.keys()))
     uploaded_img = st.file_uploader("📸 Image", type=["jpg", "png"])
     uploaded_csv = st.file_uploader("📊 Data", type=["csv", "xlsx"])
-    st.info("📍Time Zone: {user_tz if user_tz else 'Locating...'}")
+    st.info(f"📍Time Zone: {user_tz if user_tz else 'Locating...'}")
     
     # INDUSTRY READY: Indexing to Cloud ChromaDB
     if uploaded_csv:
