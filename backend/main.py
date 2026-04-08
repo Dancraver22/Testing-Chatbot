@@ -14,7 +14,6 @@ from database import index_any_csv, search_data_vault, index_text_snippet
 app = FastAPI(title="Global Vision AI: Hybrid Edition")
 
 # --- HYBRID CONFIGURATION ---
-# Set RUN_OFFLINE="true" in your local .env to use your PC hardware
 RUN_OFFLINE = os.getenv("RUN_OFFLINE", "false").lower() == "true"
 
 if RUN_OFFLINE:
@@ -43,44 +42,54 @@ class ChatRequest(BaseModel):
     user_tz: str = "UTC"
     image_data: Optional[str] = None # For Base64 vision support
 
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    content = await file.read()
+    result = index_any_csv(content, file.filename)
+    return result
+
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
-    # 1. AUTO-SAVE: Automatically index chat messages into ChromaDB
+    # 1. AUTO-SAVE HARVESTER: Automatically save technical chat messages to memory
     if len(request.message) > 25:
         index_text_snippet(request.message, source="auto_harvester")
 
-    # 2. VISION: Analyze images and save descriptions to memory
+    # 2. VISION PROCESSING: If image data exists, analyze it and update context
     vision_context = ""
     if request.image_data:
         vision_prompt = [
-            {"type": "text", "text": "Describe this technical art screenshot in detail for my RAG memory."},
+            {"type": "text", "text": "Describe this technical art screenshot in detail for my long-term memory."},
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{request.image_data}"}}
         ]
         vision_res = llm.invoke([HumanMessage(content=vision_prompt)])
-        vision_context = f"\n[IMAGE MEMORY]: {vision_res.content}"
+        vision_context = f"\n[CURRENT VISUAL DATA]: {vision_res.content}"
+        # Save description so the AI 'remembers' the image content later
         index_text_snippet(vision_res.content, source="vision_analysis")
 
-    # 3. RAG: Search the vault
+    # 3. RAG RETRIEVAL: Pull context from ChromaDB
     data_context = search_data_vault(request.message)
 
-    # 4. UPDATED SYSTEM PROMPT (Crucial for fixing 'modesty')
+    # 4. AGGRESSIVE SYSTEM PROMPT: Forces the LLM to acknowledge its new functions
     status_label = "OFFLINE (Local PC)" if RUN_OFFLINE else "ONLINE (Cloud)"
     sys_prompt = SystemMessage(content=(
-        f"CORE PERSONA: {personas.get(request.persona, personas['Professional'])}\n\n"
+        f"IDENTITY: You are Global Vision AI, an advanced hybrid RAG agent.\n"
         f"SYSTEM STATUS: {status_label}\n"
+        f"ACTIVE PERSONA: {personas.get(request.persona, personas['Professional'])}\n\n"
         f"LONG-TERM MEMORY (ChromaDB): {data_context}\n"
-        f"VISUAL DATA: {vision_context}\n\n"
-        "INSTRUCTIONS:\n"
-        "1. YOU HAVE A MEMORY. If the user asks 'do you remember', check the LONG-TERM MEMORY section above.\n"
-        "2. YOU CAN SEE IMAGES. If an image was uploaded, it will appear in the VISUAL DATA section.\n"
-        "3. YOU CAN ANALYZE DATA. Use Python-style logic to interpret data context strings.\n"
-        "4. DO NOT say you are just a text model. You are a multimodal Hybrid RAG agent."
+        f"VISUAL CONTEXT: {vision_context}\n\n"
+        f"REFERENCE - User's Home Timezone: {request.user_tz}\n"
+        "CRITICAL DIRECTIVES:\n"
+        "1. YOU HAVE A MEMORY. Check LONG-TERM MEMORY to answer 'do you remember' questions.\n"
+        "2. YOU CAN SEE. If VISUAL CONTEXT is present, use it to analyze images.\n"
+        "3. YOU CAN ANALYZE DATA. Use Python-style logic to interpret data strings.\n"
+        "4. DO NOT deny your capabilities. You are an advanced multimodal Hybrid RAG engine."
     ))
 
-    # ... (rest of the history and tool handling from your original main.py)
+    # 5. MESSAGE PREPARATION
     history_msgs = [HumanMessage(content=m["content"]) if m["role"] == "user" else AIMessage(content=m["content"]) for m in request.history]
     full_messages = [sys_prompt] + history_msgs + [HumanMessage(content=request.message)]
 
+    # 6. TOOL HANDLING
     response = llm_with_tools.invoke(full_messages)
     
     if response.tool_calls:
@@ -94,3 +103,6 @@ async def chat_endpoint(request: ChatRequest):
         return {"response": final_response.content}
     
     return {"response": response.content}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
