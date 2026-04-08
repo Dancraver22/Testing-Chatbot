@@ -5,7 +5,7 @@ import io
 import os
 
 # Production-grade embedding model
-# This runs locally on your CPU/GPU and caches in RAM
+# Runs on CPU/GPU and caches in RAM for offline speed
 _ef = embedding_functions.SentenceTransformerEmbeddingFunction(
     model_name="BAAI/bge-base-en-v1.5",
     device="cpu" 
@@ -21,7 +21,6 @@ def index_text_snippet(text: str, source: str = "manual_chat"):
             name="user_data_vault", 
             embedding_function=_ef
         )
-        # Generate a unique ID for this memory snippet
         doc_id = f"note_{os.urandom(4).hex()}"
         collection.add(
             documents=[text],
@@ -57,10 +56,14 @@ def index_any_csv(file_content: bytes, filename: str):
         return {"status": "error", "message": f"Indexing failed: {str(e)}"}
 
 def search_data_vault(query: str, n_results: int = 10):
-    """Retrieves relevant matches for LLM context."""
+    """Retrieves relevant matches from memory for LLM context."""
     try:
-        collection = _client.get_collection(name="user_data_vault", embedding_function=_ef)
+        collection = _client.get_or_create_collection(name="user_data_vault", embedding_function=_ef)
         results = collection.query(query_texts=[query], n_results=n_results)
+        
+        if not results['documents'] or not results['documents'][0]:
+            return "No relevant technical data found in memory."
+            
         return "\n".join(results['documents'][0])
     except Exception:
-        return "No relevant technical data found in memory."
+        return "Memory vault is currently initializing."
