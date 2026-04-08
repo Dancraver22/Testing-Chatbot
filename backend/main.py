@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn
 from langchain_groq import ChatGroq
-from langchain_community.chat_models import ChatOllama # For local PC mode
+from langchain_community.chat_models import ChatOllama # For your local PC mode
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 
 from tools import all_tools
@@ -14,7 +14,6 @@ from database import index_any_csv, search_data_vault, index_text_snippet
 app = FastAPI(title="Global Vision AI: Hybrid Edition")
 
 # --- HYBRID CONFIGURATION ---
-# Set RUN_OFFLINE="true" in your local .env to use your PC hardware
 RUN_OFFLINE = os.getenv("RUN_OFFLINE", "false").lower() == "true"
 
 if RUN_OFFLINE:
@@ -51,7 +50,7 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
-    # 1. AUTO-SAVE HARVESTER: Automatically save substantial chats to memory
+    # 1. AUTO-SAVE HARVESTER: Automatically save messages to ChromaDB
     if len(request.message) > 25:
         index_text_snippet(request.message, source="auto_harvester")
 
@@ -59,12 +58,11 @@ async def chat_endpoint(request: ChatRequest):
     vision_context = ""
     if request.image_data:
         vision_prompt = [
-            {"type": "text", "text": "Describe this technical art screenshot in detail for my RAG memory."},
+            {"type": "text", "text": "Describe this technical art screenshot in detail for my long-term memory."},
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{request.image_data}"}}
         ]
         vision_res = llm.invoke([HumanMessage(content=vision_prompt)])
         vision_context = f"\n[CURRENT VISUAL DATA]: {vision_res.content}"
-        # Save description so the AI 'remembers' the image tomorrow
         index_text_snippet(vision_res.content, source="vision_analysis")
 
     # 3. RAG RETRIEVAL: Pull context from ChromaDB
@@ -82,7 +80,7 @@ async def chat_endpoint(request: ChatRequest):
         "CRITICAL DIRECTIVES:\n"
         "1. YOU HAVE A MEMORY. Check LONG-TERM MEMORY to answer 'do you remember' questions.\n"
         "2. YOU CAN SEE. If VISUAL CONTEXT is present, use it to analyze images.\n"
-        "3. YOU CAN ANALYZE DATA. Use Python-style logic to interpret data strings.\n"
+        "3. YOU CAN ANALYZE DATA. Use Python-style logic to interpret data context strings.\n"
         "4. DO NOT deny your capabilities. You are an advanced multimodal Hybrid RAG engine."
     ))
 
@@ -97,11 +95,7 @@ async def chat_endpoint(request: ChatRequest):
         full_messages.append(response)
         t_map = {t.name: t for t in all_tools}
         for t_call in response.tool_calls:
-            # Graceful tool handling if offline
-            if RUN_OFFLINE and t_call["name"] in ["fact_check_search", "wikipedia"]:
-                observation = "System Error: Web tools are unavailable in Offline Mode."
-            else:
-                observation = t_map[t_call["name"]].invoke(t_call["args"])
+            observation = t_map[t_call["name"]].invoke(t_call["args"])
             full_messages.append(ToolMessage(content=str(observation), tool_call_id=t_call["id"]))
         
         final_response = llm.invoke(full_messages)
