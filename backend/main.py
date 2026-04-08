@@ -50,21 +50,19 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
-    # 1. AUTO-SAVE HARVESTER: Automatically save technical chat messages to memory
-    if len(request.message) > 25:
-        index_text_snippet(request.message, source="auto_harvester")
+    # 1. RETRIEVE DATA: This pulls relevant snippets from your CSV/ChromaDB
+    data_context = search_data_vault(request.message)
 
-    # 2. VISION PROCESSING: If image data exists, analyze it and update context
-    vision_context = ""
-    if request.image_data:
-        vision_prompt = [
-            {"type": "text", "text": "Describe this technical art screenshot in detail for my long-term memory."},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{request.image_data}"}}
-        ]
-        vision_res = llm.invoke([HumanMessage(content=vision_prompt)])
-        vision_context = f"\n[CURRENT VISUAL DATA]: {vision_res.content}"
-        # Save description so the AI 'remembers' the image content later
-        index_text_snippet(vision_res.content, source="vision_analysis")
+    # 2. UPDATED SYSTEM PROMPT: Forces the agent to use the retrieved data
+    sys_prompt = SystemMessage(content=(
+        f"IDENTITY: You are Global Vision AI, a high-performance RAG agent.\n"
+        f"ACTIVE PERSONA: {personas.get(request.persona, personas['Professional'])}\n\n"
+        f"LONG-TERM MEMORY (ChromaDB): {data_context}\n\n"
+        "CRITICAL DIRECTIVES:\n"
+        "1. YOU HAVE A MEMORY. If the user asks about data they sent, check the LONG-TERM MEMORY section above.\n"
+        "2. DO NOT say you are just a text model. You ARE the data processing engine.\n"
+        "3. Use 'RETRIEVED CONTEXT' to perform technical analysis on the CSV rows provided."
+    ))
 
     # 3. RAG RETRIEVAL: Pull context from ChromaDB
     data_context = search_data_vault(request.message)
